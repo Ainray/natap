@@ -366,7 +366,7 @@ iptables_nat_stop(){
 }
 # stop NAT 
 natstop(){
-    ifdown ${eth0} || ifdown ${wlan0} || iptables_nat_stop && service networking restart
+    get_interface && ifdown ${eth0} || ifdown ${wlan0} || iptables_nat_stop && service networking restart
     echo "none" > ${statusfile}
 }
 #start NAT
