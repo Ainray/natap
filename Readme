@@ -1,0 +1,40 @@
+Introduction:
+        This script helps you to create a wireless-AP on Linux laptop (I use it as server.)
+    and local LAN behind the Linux sever by NAT.
+
+        My setting on Debian gateway have three sets of rules:
+
+            * Disallow incoming connections to eth1 (the external network interface
+            * Allow outgoing packets from the LAN (via eth0 and wlan0
+            * Allow established connections to return."
+
+        In my case, I have three interfaces, one Ethernet with Internet connection
+    (not directly, but provided by my network adminstrator. So do not be confused 
+    that why my Internet IP is an private IP. I also have the second removable 
+    usb-Ethnernet to share Internet with my Windows desktop because it has a two
+    displays which convient to enjoyment and do some works. I also use it as a 
+    terminal of my Linux server. In addtional, my Linux server has a wireless card,
+    I use it as an AP to share Internet with my cellphone Huawei P10 and ipad.
+    I use isc-dchp-server to get my Linux to a DHCP server of the shared WIFI
+
+install
+    1 read the help 
+            natap
+    2 configure
+            natap configure
+        you maybe need execution permission by 
+            chmod u+x natap
+    3 install
+            cd natap_0-1
+            sudo make install
+uninstall:
+        ===========================================================
+        === Be careful. You must know why you run this command. ===
+        ===========================================================
+
+            sudo rm /etc/hostapd.conf /etc/dhcp/dhcpd.conf /etc/network/interfaces /usr/share/bash-completion/completions/nat* /usr/local/sbin/natap
+
+        ===========================================================
+        === Be careful. You must know why you run this command. ===
+        ===========================================================
+
