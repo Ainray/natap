@@ -9,6 +9,8 @@ eth0=
 eth0_ip=
 eth0_ip_range=
 wlan0=
+wlan0_ap=
+wlan0_sta=
 wlan0_ip=
 wlan0_ip_range=
 wlan0_ssid=
@@ -39,12 +41,18 @@ get_interface(){
     #
         [ ! -d "/sys/class/net/wlp60s0" ] && \
             echo -e "Please check Inernet ethernet interface by\n   ls /sys/class/net\nModify the interface names in $0" && return 1
+        # ap name, wlp60s0_ap, station name, wlp60s0_sta
         wlan0="wlp60s0"
+        wlan0_ap="${wlan0}"
+        wlan0_sta="${wlan0}_sta"
         wlan0_ip="192.39.12.1"
         wlan0_ip_range="192.39.12.1/24"
         wlan0_mask="255.255.255.0"
         wlan0_ssid="ainray"
         wlan0_psk="235111235"
+    # create ap virtual interface
+        #[ ! -d /sys/class/net/${wlan0_ap} ] && \
+            #iw phy phy0 interface add ${wlan0_ap} type __ap
     #
     # local LAN interface, eth0, because plugin and unplug, its name is determined. My Debian Stretch 
     # name it maybe eth0 or exn${MAC}. More refer to:
@@ -52,8 +60,9 @@ get_interface(){
     #
     if [ -d "/sys/class/net/enx000ec6fb151b" ]; then eth0="enx000ec6fb151b";fi
     eth0="${eth0:-eth0}"
-    [ ! -d /sys/class/net/${eth0} ] &&  \
-        echo -e "Please check Inernet ethernet interface by\n   ls /sys/class/net\nModify the interface names in $0" && return 1
+    # sometimes, you maybe do not have local usb Interface, you can still install this tool.
+    #[ ! -d /sys/class/net/${eth0} ] &&  \
+        #echo -e "Please check Inernet ethernet interface by\n   ls /sys/class/net\nModify the interface names in $0" && return 1
     eth0_ip="192.20.16.1"
     eth0_ip_range="192.20.16.1/24"
     return 0
@@ -80,7 +89,9 @@ usage(){
     echo "  sudo ${PROGNAME} flush"
     echo "  sudo ${PROGNAME} masq both"
     echo "  sudo ${PROGNAME} masq wlan"
-    echo "  sudo ${PROGNAME} masq [lan]"
+    echo "  sudo ${PROGNAME} masq wlan"
+    echo "  sudo ${PROGNAME} ap start"
+    echo "  sudo ${PROGNAME} ap stop"
     echo ""
     echo -n "  This command must be run with root privilege. It create a wireless access point(AP) and share"
     echo -n " the Internet from Ethernet card eth1 using MASQUERADE.  It also allow local LAN behind "
@@ -171,17 +182,47 @@ con_if(){
     echo "">>${con_file_if}
     echo "# wlan">>${con_file_if}
     echo "# manual not static">>${con_file_if}
-    echo "iface ${wlan0} inet manual">>${con_file_if}
+    echo "iface ${wlan0_ap} inet manual">>${con_file_if}
     echo "    #hostapd must be started after the interface is brought-up">>${con_file_if}
     echo "    post-up /usr/sbin/hostapd -B /etc/${con_file_hostapd##*/}">>${con_file_if}
-    echo "    up ip addr add ${wlan0_ip_range} broadcast ${wlan0_ip%.*}.1 dev ${wlan0}">>${con_file_if}
+    echo "    up ip addr add ${wlan0_ip_range} broadcast ${wlan0_ip%.*}.1 dev ${wlan0_ap}">>${con_file_if}
     echo "    up service isc-dhcp-server restart">>${con_file_if}
     echo "    pre-down killall hostapd">>${con_file_if}
-    echo "    down ip addr flush dev ${wlan0}">>${con_file_if}
+    echo "    down ip addr flush dev ${wlan0_ap}">>${con_file_if}
+}
+con_if_wifi(){
+    # generate /etc/network/interfaces files
+    echo "# This file describes the network interfaces available on your system" >${con_file_if}
+    echo "# and how to activate them. For more information, see interfaces(5)."  >>${con_file_if}
+    echo "">>${con_file_if}
+    echo "source /etc/network/interfaces.d/*">>${con_file_if}
+    echo "">>${con_file_if}
+    echo "# The loopback network interface">>${con_file_if}
+    echo "auto lo">>${con_file_if}
+    echo "iface lo inet loopback">>${con_file_if}
+    echo "">>${con_file_if}
+    echo "# The primary network interface">>${con_file_if}
+    echo "auto ${eth1}">>${con_file_if}
+    echo "allow-hotplug ${eth1}">>${con_file_if}
+    echo "iface ${eth1} inet static">>${con_file_if}
+    echo "    address ${eth1_ip}">>${con_file_if}
+    echo "    netmask ${eth1_mask}">>${con_file_if}
+    echo "    gateway ${eth1_ip%.*}.1">>${con_file_if}
+    echo -e "    dns-nameservers ${dns_server_ip//,/\\n    dns-nameservers }">>${con_file_if}
+    echo "">>${con_file_if}
+    echo "# wlan">>${con_file_if}
+    echo "# manual not static">>${con_file_if}
+    echo "iface ${wlan0_ap} inet manual">>${con_file_if}
+    echo "    #hostapd must be started after the interface is brought-up">>${con_file_if}
+    echo "    post-up /usr/sbin/hostapd -B /etc/${con_file_hostapd##*/}">>${con_file_if}
+    echo "    up ip addr add ${wlan0_ip_range} broadcast ${wlan0_ip%.*}.1 dev ${wlan0_ap}">>${con_file_if}
+    echo "    up service isc-dhcp-server restart">>${con_file_if}
+    echo "    pre-down killall hostapd">>${con_file_if}
+    echo "    down ip addr flush dev ${wlan0_ap}">>${con_file_if}
 }
 con_hostapd(){
     # generate /etc/hostapd.conf
-    echo "interface=${wlan0}" >${con_file_hostapd}
+    echo "interface=${wlan0_ap}" >${con_file_hostapd}
     echo "driver=nl80211" >>${con_file_hostapd}
     echo "" >>${con_file_hostapd}
     echo "#simply means 2.4GHz band, a means 5G" >>${con_file_hostapd}
@@ -245,10 +286,14 @@ con_bash(){
     echo '    prev=${COMP_WORDS[$((COMP_CWORD-1))]}'>>${con_file_bash_comp}
     echo '    case "$prev" in'>>${con_file_bash_comp}
     echo "        \"${PROGNAME}\")">>${con_file_bash_comp}
-    echo '            opts="restart start status stop flush masq"'>>${con_file_bash_comp}
+    echo '            opts="ap restart start status stop flush masq"'>>${con_file_bash_comp}
     echo '            ;;'>>${con_file_bash_comp}
     echo '        "start"|"masq")'>>${con_file_bash_comp}
     echo '            opts="wlan both lan"'>>${con_file_bash_comp}
+    echo '            ;;'>>${con_file_bash_comp}
+    echo '        ap)'>>${con_file_bash_comp}
+    echo '            opts="start stop"'>>${con_file_bash_comp}
+    echo '            ;;'>>${con_file_bash_comp}
     echo '    esac'>>${con_file_bash_comp}
     echo '    COMPREPLY=( $(compgen -W "${opts}" -- $cur) )'>>${con_file_bash_comp}
     echo '}'>>${con_file_bash_comp}
@@ -292,6 +337,16 @@ configure_nat(){
     con_make
     cp ${PROGNAME} ${PROGDIR}
 }
+configure_nat_wifi(){
+    [ -d "${PROGDIR}" ] && rm -rf "${PROGDIR}"
+    mkdir "${PROGDIR}"
+    con_if_wifi
+    con_hostapd
+    con_isc_dhcp
+    con_bash
+    con_make
+    cp ${PROGNAME} ${PROGDIR}
+}
 
 iptables_flush(){
     #
@@ -325,11 +380,11 @@ iptables_filter_lan(){
     ${IPTABLES} -A FORWARD -i ${eth1} -o ${eth0} -j REJECT
 }
 iptables_filter_wlan(){
-    ${IPTABLES} -A FORWARD -i ${eth1} -o ${wlan0} -m state --state ESTABLISHED,RELATED -j ACCEPT
+    ${IPTABLES} -A FORWARD -i ${eth1} -o ${wlan0_ap} -m state --state ESTABLISHED,RELATED -j ACCEPT
     # Allow outgoing connections from the LAN side.
-    ${IPTABLES} -A FORWARD -i ${wlan0} -o ${eth1} -j ACCEPT
+    ${IPTABLES} -A FORWARD -i ${wlan0_ap} -o ${eth1} -j ACCEPT
     # Don't forward from the outside to the inside.
-    ${IPTABLES} -A FORWARD -i ${eth1} -o ${wlan0} -j REJECT
+    ${IPTABLES} -A FORWARD -i ${eth1} -o ${wlan0_ap} -j REJECT
 }
 iptables_lan(){
     iptables_allow
@@ -366,7 +421,7 @@ iptables_nat_stop(){
 }
 # stop NAT 
 natstop(){
-    get_interface && ifdown ${eth0} || ifdown ${wlan0} || iptables_nat_stop && service networking restart
+    get_interface && ifdown ${eth0} || ifdown ${wlan0_ap} || iptables_nat_stop && service networking restart
     echo "none" > ${statusfile}
 }
 #start NAT
@@ -376,10 +431,10 @@ natstart_lan(){
 }
 natstart_wlan(){
     #bring up local wlan interface
-    get_interface && ifup ${wlan0} && iptables_flush && iptables_wlan && iptables_nat
+    get_interface && ifup ${wlan0_ap} && iptables_flush && iptables_wlan && iptables_nat
 }
 natstart_both(){
-    get_interface && ifup ${eth0} && ifup ${wlan0} && iptables_flush && iptables_both && iptables_nat
+    get_interface && ifup ${eth0} && ifup ${wlan0_ap} && iptables_flush && iptables_both && iptables_nat
 }
 natstatus(){
     echo -n ipv6: `cat /proc/sys/net/ipv6/conf/all/forwarding` ipv4:`cat /proc/sys/net/ipv4/ip_forward`
@@ -401,6 +456,14 @@ natrestart(){
         both) natstart_both;;
         *) natstart_lan;;
     esac
+}
+ap_create(){
+    #bring up local wlan interface and share ap
+    get_interface && ifup ${wlan0_ap}
+}
+ap_stop(){
+    #bring up local wlan interface and share ap
+    get_interface && ifdown ${wlan0_ap}
 }
 case "$1" in 
     start)
@@ -439,7 +502,15 @@ case "$1" in
         esac
         ;;
     configure)
-        get_interface && configure_nat
+         get_interface && configure_nat
+         ;;
+    ap)
+        [ $(id -u) -ne 0 ] && echo "Pleas run as root: sudo nat ..." && exit 1
+        shift
+        case "$1" in 
+            start) ap_create && exit 0;;
+            stop) ap_stop && exit 0;;
+        esac
         ;;
     *)
         usage |less && exit 1
