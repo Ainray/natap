@@ -213,6 +213,7 @@ con_if_wifi(){
     echo "# wlan">>${con_file_if}
     echo "# manual not static">>${con_file_if}
     echo "iface ${wlan0_ap} inet manual">>${con_file_if}
+    echo "" >>${con_file_hostapd}
     echo "    #hostapd must be started after the interface is brought-up">>${con_file_if}
     echo "    post-up /usr/sbin/hostapd -B /etc/${con_file_hostapd##*/}">>${con_file_if}
     echo "    up ip addr add ${wlan0_ip_range} broadcast ${wlan0_ip%.*}.1 dev ${wlan0_ap}">>${con_file_if}
@@ -222,30 +223,43 @@ con_if_wifi(){
 }
 con_hostapd(){
     # generate /etc/hostapd.conf
-    echo "interface=${wlan0_ap}" >${con_file_hostapd}
+    echo "# ${PROGNAME}_${VERSION}" >${con_file_hostapd}
+    echo "# Debug" >>${con_file_hostapd}
+    echo "# Minimal configuration for test" >>${con_file_hostapd}
+    echo "interface=${wlan0_ap}" >>${con_file_hostapd}
     echo "driver=nl80211" >>${con_file_hostapd}
-    echo "" >>${con_file_hostapd}
-    echo "#simply means 2.4GHz band, a means 5G" >>${con_file_hostapd}
-    echo "hw_mode=g" >>${con_file_hostapd}
+    echo "ssid=${wlan0_ssid}" >>${con_file_hostapd}
     echo "#check by sudo iwlist wlp60s0 channel, more refer to iwlist" >>${con_file_hostapd}
     echo "channel=1" >>${con_file_hostapd}
-    echo "ieee80211d=1" >>${con_file_hostapd}
-    echo "#china, check by isoqurey" >>${con_file_hostapd}
-    echo "country_code=CN" >>${con_file_hostapd}
+    echo "" >>${con_file_hostapd}
+    echo "# add more" >>${con_file_hostapd}
+    echo "#simply means 2.4GHz band, a means 5G" >>${con_file_hostapd}
+    echo "hw_mode=g" >>${con_file_hostapd}
+    echo "wme_enabled=1" >>${con_file_hostapd}
     echo "# 802.11n support" >>${con_file_hostapd}
     echo "ieee80211n=1" >>${con_file_hostapd}
-    echo "# QoS support" >>${con_file_hostapd}
-    echo "wmm_enabled=1" >>${con_file_hostapd}
+    echo "# check it by iw list" >>${con_file_hostapd}
+    echo "ht_capab=[HT40+][SHORT-GI-40][DSSS_CKK-40]" >>${con_file_hostapd}
     echo "" >>${con_file_hostapd}
-    echo "ssid=${wlan0_ssid}" >>${con_file_hostapd}
+    echo "# authentication and Encryption" >>${con_file_hostapd}
     echo "# 1 for wpa, 2 for wep, 3 both" >>${con_file_hostapd}
-    echo "auth_algs=3" >>${con_file_hostapd}
+    echo "auth_algs=1" >>${con_file_hostapd}
+    echo "ignore_broadcast_ssid=0" >>${con_file_hostapd}
     echo "# WPA 2" >>${con_file_hostapd}
     echo "wpa=2" >>${con_file_hostapd}
-    echo "wpa_key_mgmt=WPA-PSK WPA-EAP WPA-PSK-SHA256 WPA-EAP-SHA256" >>${con_file_hostapd}
+    echo "wpa_passphrase=${wlan0_psk}" >>${con_file_hostapd}
+    echo "wpa_key_mgmt=WPA-PSK" >>${con_file_hostapd}
+    echo "# wpa_pairwise for WPA, rsn_pairwise for WPA2" >>${con_file_hostapd}
     echo "wpa_pairwise=TKIP" >>${con_file_hostapd}
     echo "rsn_pairwise=CCMP" >>${con_file_hostapd}
-    echo "wpa_passphrase=${wlan0_psk}" >>${con_file_hostapd}
+    echo "" >>${con_file_hostapd}
+    echo "# more" >>${con_file_hostapd}
+    echo "# limit frequencies used to those allowed in the country" >>${con_file_hostapd}
+    echo "ieee80211d=1" >>${con_file_hostapd}
+    echo "# china, check by isoqurey" >>${con_file_hostapd}
+    echo "country_code=CN" >>${con_file_hostapd}
+    echo "# QoS support" >>${con_file_hostapd}
+    echo "wmm_enabled=1" >>${con_file_hostapd}
 }
 con_isc_dhcp(){
     #generate /etc/dhcp/dhcpd.conf
@@ -447,7 +461,7 @@ natstatus(){
     echo "More refer to: iptables -t nat/filter -L -v"
 }
 natrestart(){
-    local status=$(cat ${statusfile})
+    local status=${1:-$(cat ${statusfile})}
     status=${status:-lan} #first, no status file, default start lan NAT
     get_interface
     natstop
@@ -484,7 +498,8 @@ case "$1" in
         natstop && exit 0;;
     restart)
         [ $(id -u) -ne 0 ] && echo "Pleas run as root: sudo nat ..." && exit 1
-        natrestart && exit 0;;
+        shift
+        natrestart "$1" && exit 0;;
     flush)
         [ $(id -u) -ne 0 ] && echo "Pleas run as root: sudo nat ..." && exit 1
         # for safety, we should stop NAT before flush filters
