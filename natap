@@ -45,8 +45,8 @@ get_interface(){
         wlan0="wlp60s0"
         wlan0_ap="${wlan0}"
         wlan0_sta="${wlan0}_sta"
-        wlan0_ip="192.39.12.1"
-        wlan0_ip_range="192.39.12.1/24"
+        wlan0_ip="192.20.39.1"
+        wlan0_ip_range="192.20.39.1/24"
         wlan0_mask="255.255.255.0"
         wlan0_ssid="ainray"
         wlan0_psk="235111235"
@@ -176,6 +176,7 @@ con_if(){
     echo "    gateway ${eth1_ip%.*}.1">>${con_file_if}
     echo -e "    dns-nameservers ${dns_server_ip//,/\\n    dns-nameservers }">>${con_file_if}
     echo "# usb-lan">>${con_file_if}
+    echo "auto ${eth0}">>${con_file_if}
     echo "allow-hotplug ${eth0}">>${con_file_if}
     echo "iface ${eth0} inet static">>${con_file_if}
     echo "    address ${eth0_ip} ">>${con_file_if}
@@ -374,7 +375,8 @@ iptables_flush(){
 
 iptables_masq(){
     # Masquerade.
-    ${IPTABLES} -t nat -A POSTROUTING -o ${eth1} -j MASQUERADE
+    #${IPTABLES} -t nat -A POSTROUTING -o ${eth1} -j MASQUERADE
+    ${IPTABLES} -t nat -A POSTROUTING -o ${eth1} -j SNAT --to-source 172.20.16.39
 }
 
 iptables_allow(){
@@ -427,10 +429,10 @@ iptables_both(){
 iptables_nat(){
     # Enable routing.
     echo 1 > /proc/sys/net/ipv4/ip_forward
-    echo 1 >/proc/sys/net/ipv6/conf/all/forwarding
+    #echo 1 >/proc/sys/net/ipv6/conf/all/forwarding
 }
 iptables_nat_stop(){
-    echo 0 >/proc/sys/net/ipv6/conf/all/forwarding
+    #echo 0 >/proc/sys/net/ipv6/conf/all/forwarding
     echo 0 >/proc/sys/net/ipv4/ip_forward
 }
 # stop NAT 
@@ -495,7 +497,7 @@ case "$1" in
         ;;
     stop)
         [ $(id -u) -ne 0 ] && echo "Pleas run as root: sudo nat ..." && exit 1
-        natstop && exit 0;;
+        iptables_nat_stop && exit 0;;
     restart)
         [ $(id -u) -ne 0 ] && echo "Pleas run as root: sudo nat ..." && exit 1
         shift
