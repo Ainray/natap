@@ -2,365 +2,239 @@
 # author: ainray
 # email: wwzhang0421@163.com
 #
-eth1= 
-eth1_ip=
-dns_server_ip=
-eth0=
-eth0_ip=
-eth0_ip_range=
-wlan0=
-wlan0_ap=
-wlan0_sta=
-wlan0_ip=
-wlan0_ip_range=
-wlan0_ssid=
-wlan0_psk=
-#
-#------------------- parameters you should changed here--------------------
-#
-#   change the interface names using your system interfaces, my Internet is provided by  my network 
-#administrator, so do not be confused my Internet IP is a reserved private IP(172.20.16.39)
-#   try:
-#       ls /sys/class/net
-#       sudo iwconfig
-#       ip a
-# 
-get_interface(){
-    #
-    #   Internet interface
-    #
-        [ ! -d "/sys/class/net/enp59s0" ] &&  \
-            echo -e "Please check Inernet ethernet interface by\n   ls /sys/class/net\nModify the interface names in $0" && return 1
-        eth1="enp59s0";
-        eth1_ip="172.20.16.39"
-        eth1_mask="255.255.255.0"
-        #comma separated list
-        dns_server_ip="159.226.119.129,223.6.6.6,114.114.114.114,8.8.8.8,8.8.4.4"
-    #
-    # wireless interface, wlan0
-    #
-        [ ! -d "/sys/class/net/wlp60s0" ] && \
-            echo -e "Please check Inernet ethernet interface by\n   ls /sys/class/net\nModify the interface names in $0" && return 1
-        # ap name, wlp60s0_ap, station name, wlp60s0_sta
-        wlan0="wlp60s0"
-        wlan0_ap="${wlan0}"
-        wlan0_sta="${wlan0}_sta"
-        wlan0_ip="192.20.39.1"
-        wlan0_ip_range="192.20.39.1/24"
-        wlan0_mask="255.255.255.0"
-        wlan0_ssid="ainray"
-        wlan0_psk="235111235"
-    # create ap virtual interface
-        #[ ! -d /sys/class/net/${wlan0_ap} ] && \
-            #iw phy phy0 interface add ${wlan0_ap} type __ap
-    #
-    # local LAN interface, eth0, because plugin and unplug, its name is determined. My Debian Stretch 
-    # name it maybe eth0 or exn${MAC}. More refer to:
-    #       https://wiki.debian.org/NetworkConfiguration#Predictable_Network_Interface_Names
-    #
-    if [ -d "/sys/class/net/enx000ec6fb151b" ]; then eth0="enx000ec6fb151b";fi
-    eth0="${eth0:-eth0}"
-    # sometimes, you maybe do not have local usb Interface, you can still install this tool.
-    #[ ! -d /sys/class/net/${eth0} ] &&  \
-        #echo -e "Please check Inernet ethernet interface by\n   ls /sys/class/net\nModify the interface names in $0" && return 1
-    eth0_ip="192.20.16.1"
-    eth0_ip_range="192.20.16.1/24"
-    return 0
-}
-
-VERSION="0-1"
+VERSION="1-0"
 PROGNAME=$(basename $0)
+
+eth1=enp59s0 
+eth0=enx000ec6fb151b
+wlan0=wlp60s0
+wlan0_ap=${wlan0}_ap
+wlan0_sta=${wlan0}_sta
+wlan0_ip=192.20.39.1
+wlan0_mask=255.255.255.0
+wlan0_ssid="ainray"
+wlan0_psk="235111235"
+eth0_ip="192.20.16.1"
+eth0_ip_range="192.20.16.1/24"
+eth1_ip="172.20.16.39"
+eth1_mask="255.255.255.0"
+#comma separated list
+dns_server_ip="211.167.230.100,211.167.230.200,8.8.8.8,8.8.4.4"
+
 typeset -u PROGNAMEU
 PROGNAMEU=${PROGNAME}
 PREFIX=$(pwd)
 PROGDIR="${PROGNAME}_${VERSION}"
 IPTABLES=/sbin/iptables
-statusfile="${HOME}/.${PROGNAME}rc"
-cstatus="none"  #lan wlan both none
 
 usage(){
     echo "SYNOPSIS:"
-    echo "  sudo ${PROGNAME} start both"
-    echo "  sudo ${PROGNAME} start wlan"
-    echo "  sudo ${PROGNAME} start [lan]"
-    echo "  sudo ${PROGNAME} stop"
-    echo "  sudo ${PROGNAME} status"
-    echo "  sudo ${PROGNAME} restart"
-    echo "  sudo ${PROGNAME} flush"
-    echo "  sudo ${PROGNAME} masq both"
-    echo "  sudo ${PROGNAME} masq wlan"
-    echo "  sudo ${PROGNAME} masq wlan"
-    echo "  sudo ${PROGNAME} ap start"
-    echo "  sudo ${PROGNAME} ap stop"
+    echo "  sudo ${PROGNAME} nat start|restart|masq"
+    echo "  sudo ${PROGNAME} nat start|restart|masq ${eth1} ${eth0}"
+    echo "  sudo ${PROGNAME} nat start|restart|masq ${eth1} ${wlan_ap}"
+    echo "  sudo ${PROGNAME} nat start|restart|masq ${eth1} ${eth0} ${wlan_ap}"
+    echo "  sudo ${PROGNAME} nat start|restart|masq ${eth1} ${eth0} ${wlan_ap}"
+    echo "  sudo ${PROGNAME} nat start|restart|masq ${wlan0_sta} ${wlan_ap}"
+    echo "  sudo ${PROGNAME} nat start|restart|masq ${wlan0_sta} ${eth0}"
+    echo "  sudo ${PROGNAME} nat start|restart|masq ${wlan0_sta} ${wlan0_ap} ${eth0}"
+    echo "  sudo ${PROGNAME} nat stop"
+    echo "  sudo ${PROGNAME} nat status"
+    echo "  sudo ${PROGNAME} nat flush"
+    echo "  sudo ${PROGNAME} ap start ${wlan0}"
+    echo "  sudo ${PROGNAME} ap stop ${wlan0}"
+    echo "  sudo ${PROGNAME} ap create ${wlan0}"
+    echo "  sudo ${PROGNAME} ap delete ${wlan0}"
+    echo "  sudo ${PROGNAME} reset"
     echo ""
-    echo -n "  This command must be run with root privilege. It create a wireless access point(AP) and share"
-    echo -n " the Internet from Ethernet card eth1 using MASQUERADE.  It also allow local LAN behind "
-    echo -n " another Ethernet card (i.e., eth0) to connect to Internet."
-    echo 
-    echo "INSTALL COMMAND ${PROGNAMEU} CONFIGURE"
+    echo  "  This command must be run with root privilege. It can:"
+    echo  "         + Create a wireless access point(AP)"
+    echo  "         + Share Internet with local LAN by using MASQUERADE, i.e., Linux is a gateway"
+    echo  ""
+    echo  "  Dependencies:"
+    echo  "         + hostapd, create access point"
+    echo  "         + isc-dhcp-server, assign ip for associcated clients"
+    echo  "         + network tools, e.g. ifup/ifdown/ip/iw/ifconfig/iwconfig"
+    echo  ""
+    echo  "    Important configuration files: "
+    echo  "         + /etc/hostapd.conf"
+    echo  "         + /etc/dhcp/dhcpd.conf"
+    echo  "         + /etc/default/isc-dhcp-server"
+    echo  "         + /etc/network/interfaces"
+    echo  "         + /usr/share/bash-completion/completions/${PROGNAME}***"
     echo
-    echo -n "   It does not generate all-purpose configuration files, instead just give exmpales. "
-    echo -n "The generated configuration files are avaiable for myself, of course. "
-    echo -n "You just modify them with maybe a little effort to get it worked for you."
-    echo -n "My shared AP is based on hostapd and isc-dhcp-service. "
-    echo -n "So the generated configuraton including: interfaces (/etc/network/interfaces), "
-    echo -n "hostapd.conf (/etc/hostapd.conf), dhcpd.conf (/etc/dhcp/dhcpd.conf), "
-    echo -n "and Makfile to install and unstall these configuration. Before install this, you should "
-    echo    "first install these tools, under Debian you can run:"
-    echo 
-    echo    "       sudo apt-get install isc-dhcp-server hostapd"
-    echo ""
-    echo    "   After that, you run:"
-    echo 
-    echo    "       ${PROGNAME} configure"
-    echo  
-    echo -n "   Then you need to make some changes to get them available for you. "
-    echo    "After that, install them by:"
-    echo ""
-    echo    "       sudo make install"
-    echo ""
-    echo -n "   Take care before you install it, but do not worry to much. Your original file (if exits) will"
-    echo -n " be backed up by adding suffix to its name. So install too many times, there will exsit several"
-    echo -n " gabage files. I am sorry about that, you should delete it manually."
-    echo    " Path of gabage files:"
-    echo 
-    echo    "       /etc/network/interface***"
-    echo    "       /etc/hostapd.conf***"
-    echo    "       /etc/dhcp/dhcpd.conf***"
-    echo    "       /usr/share/bash-completion/completions/${PROGNAME}***"
-    echo    "       /usr/local/sbin/${PROGNAME}"
-    echo 
-    echo  -n  "   When run SUDO MAKE INSTALL, errors maybe occur due to absence of original configuration files. Just "
-    echo    "ignore it."
-    echo 
-    echo -n "    This command is provided a bash-completion "
-    echo -n "funciton _${PROGNAME}, put it in your auto-completion path(e.g., /usr/share/bash-completion/completions/)."
-    echo -n "SUDO MAKE INSTALL will copy it into this directory automatically."
-    echo    "To get it worked, you may need run your bash startup script file(e.g., source ~/.bash_profile)"
-    echo -n "   In my case, I have three interfaces, one Ethernet with Internet connection (not directly, but provided)"
-    echo -n " by my network adminstrator. So do not be confused that why my Internet IP is an private IP."
-    echo -n " I also have the second removable usb-Ethnernet to share Internet with my Windows desktop because it"
-    echo -n " has a two displays which convient to enjoyment and do some works. I also use it as a terminal of my"
-    echo -n " Linux server. In addtional, my Linux server has a wireless card, I use it as an AP to share Internet"
-    echo -n " with my cellphone Huawei P10 and ipad. I use isc-dchp-server to get my Linux to a DHCP server of the"
-    echo    " shared WIFI."
+    echo  "     You should modify configuration files to get it worked for you. This is just a guide."
     echo 
     echo    "    My setting on Debian gateway have three sets of rules:"
     echo
     echo    "       * Disallow incoming connections to eth1 (the external network interface)"
     echo    "       * Allow outgoing packets from the LAN (via eth0 and wlan0)"
     echo    "       * Allow established connections to return."
-}
-con_file_if=${PROGDIR}/"interfaces"
-con_file_hostapd=${PROGDIR}/"hostapd.conf"
-con_file_isc_dhcp=${PROGDIR}/"dhcpd.conf"
-con_file_bash_comp=${PROGDIR}/"_${PROGNAME}"
-con_file_makefile=${PROGDIR}/"Makefile"
-con_if(){
-    # generate /etc/network/interfaces files
-    echo "# This file describes the network interfaces available on your system" >${con_file_if}
-    echo "# and how to activate them. For more information, see interfaces(5)."  >>${con_file_if}
-    echo "">>${con_file_if}
-    echo "source /etc/network/interfaces.d/*">>${con_file_if}
-    echo "">>${con_file_if}
-    echo "# The loopback network interface">>${con_file_if}
-    echo "auto lo">>${con_file_if}
-    echo "iface lo inet loopback">>${con_file_if}
-    echo "">>${con_file_if}
-    echo "# The primary network interface">>${con_file_if}
-    echo "auto ${eth1}">>${con_file_if}
-    echo "allow-hotplug ${eth1}">>${con_file_if}
-    echo "iface ${eth1} inet static">>${con_file_if}
-    echo "    address ${eth1_ip}">>${con_file_if}
-    echo "    netmask ${eth1_mask}">>${con_file_if}
-    echo "    gateway ${eth1_ip%.*}.1">>${con_file_if}
-    echo -e "    dns-nameservers ${dns_server_ip//,/\\n    dns-nameservers }">>${con_file_if}
-    echo "# usb-lan">>${con_file_if}
-    echo "auto ${eth0}">>${con_file_if}
-    echo "allow-hotplug ${eth0}">>${con_file_if}
-    echo "iface ${eth0} inet static">>${con_file_if}
-    echo "    address ${eth0_ip} ">>${con_file_if}
-    echo "">>${con_file_if}
-    echo "# wlan">>${con_file_if}
-    echo "# manual not static">>${con_file_if}
-    echo "iface ${wlan0_ap} inet manual">>${con_file_if}
-    echo "    #hostapd must be started after the interface is brought-up">>${con_file_if}
-    echo "    post-up /usr/sbin/hostapd -B /etc/${con_file_hostapd##*/}">>${con_file_if}
-    echo "    up ip addr add ${wlan0_ip_range} broadcast ${wlan0_ip%.*}.1 dev ${wlan0_ap}">>${con_file_if}
-    echo "    up service isc-dhcp-server restart">>${con_file_if}
-    echo "    pre-down killall hostapd">>${con_file_if}
-    echo "    down ip addr flush dev ${wlan0_ap}">>${con_file_if}
-}
-con_if_wifi(){
-    # generate /etc/network/interfaces files
-    echo "# This file describes the network interfaces available on your system" >${con_file_if}
-    echo "# and how to activate them. For more information, see interfaces(5)."  >>${con_file_if}
-    echo "">>${con_file_if}
-    echo "source /etc/network/interfaces.d/*">>${con_file_if}
-    echo "">>${con_file_if}
-    echo "# The loopback network interface">>${con_file_if}
-    echo "auto lo">>${con_file_if}
-    echo "iface lo inet loopback">>${con_file_if}
-    echo "">>${con_file_if}
-    echo "# The primary network interface">>${con_file_if}
-    echo "auto ${eth1}">>${con_file_if}
-    echo "allow-hotplug ${eth1}">>${con_file_if}
-    echo "iface ${eth1} inet static">>${con_file_if}
-    echo "    address ${eth1_ip}">>${con_file_if}
-    echo "    netmask ${eth1_mask}">>${con_file_if}
-    echo "    gateway ${eth1_ip%.*}.1">>${con_file_if}
-    echo -e "    dns-nameservers ${dns_server_ip//,/\\n    dns-nameservers }">>${con_file_if}
-    echo "">>${con_file_if}
-    echo "# wlan">>${con_file_if}
-    echo "# manual not static">>${con_file_if}
-    echo "iface ${wlan0_ap} inet manual">>${con_file_if}
-    echo "" >>${con_file_hostapd}
-    echo "    #hostapd must be started after the interface is brought-up">>${con_file_if}
-    echo "    post-up /usr/sbin/hostapd -B /etc/${con_file_hostapd##*/}">>${con_file_if}
-    echo "    up ip addr add ${wlan0_ip_range} broadcast ${wlan0_ip%.*}.1 dev ${wlan0_ap}">>${con_file_if}
-    echo "    up service isc-dhcp-server restart">>${con_file_if}
-    echo "    pre-down killall hostapd">>${con_file_if}
-    echo "    down ip addr flush dev ${wlan0_ap}">>${con_file_if}
-}
-con_hostapd(){
-    # generate /etc/hostapd.conf
-    echo "# ${PROGNAME}_${VERSION}" >${con_file_hostapd}
-    echo "# Debug" >>${con_file_hostapd}
-    echo "# Minimal configuration for test" >>${con_file_hostapd}
-    echo "interface=${wlan0_ap}" >>${con_file_hostapd}
-    echo "driver=nl80211" >>${con_file_hostapd}
-    echo "ssid=${wlan0_ssid}" >>${con_file_hostapd}
-    echo "#check by sudo iwlist wlp60s0 channel, more refer to iwlist" >>${con_file_hostapd}
-    echo "channel=1" >>${con_file_hostapd}
-    echo "" >>${con_file_hostapd}
-    echo "# add more" >>${con_file_hostapd}
-    echo "#simply means 2.4GHz band, a means 5G" >>${con_file_hostapd}
-    echo "hw_mode=g" >>${con_file_hostapd}
-    echo "wme_enabled=1" >>${con_file_hostapd}
-    echo "# 802.11n support" >>${con_file_hostapd}
-    echo "ieee80211n=1" >>${con_file_hostapd}
-    echo "# check it by iw list" >>${con_file_hostapd}
-    echo "ht_capab=[HT40+][SHORT-GI-40][DSSS_CKK-40]" >>${con_file_hostapd}
-    echo "" >>${con_file_hostapd}
-    echo "# authentication and Encryption" >>${con_file_hostapd}
-    echo "# 1 for wpa, 2 for wep, 3 both" >>${con_file_hostapd}
-    echo "auth_algs=1" >>${con_file_hostapd}
-    echo "ignore_broadcast_ssid=0" >>${con_file_hostapd}
-    echo "# WPA 2" >>${con_file_hostapd}
-    echo "wpa=2" >>${con_file_hostapd}
-    echo "wpa_passphrase=${wlan0_psk}" >>${con_file_hostapd}
-    echo "wpa_key_mgmt=WPA-PSK" >>${con_file_hostapd}
-    echo "# wpa_pairwise for WPA, rsn_pairwise for WPA2" >>${con_file_hostapd}
-    echo "wpa_pairwise=TKIP" >>${con_file_hostapd}
-    echo "rsn_pairwise=CCMP" >>${con_file_hostapd}
-    echo "" >>${con_file_hostapd}
-    echo "# more" >>${con_file_hostapd}
-    echo "# limit frequencies used to those allowed in the country" >>${con_file_hostapd}
-    echo "ieee80211d=1" >>${con_file_hostapd}
-    echo "# china, check by isoqurey" >>${con_file_hostapd}
-    echo "country_code=CN" >>${con_file_hostapd}
-    echo "# QoS support" >>${con_file_hostapd}
-    echo "wmm_enabled=1" >>${con_file_hostapd}
-}
-con_isc_dhcp(){
-    #generate /etc/dhcp/dhcpd.conf
-    echo '# dhcpd.conf'>${con_file_isc_dhcp}
-    echo '#'>>${con_file_isc_dhcp}
-    echo '# Sample configuration file for ISC dhcpd'>>${con_file_isc_dhcp}
-    echo '#'>>${con_file_isc_dhcp}
-    echo ''>>${con_file_isc_dhcp}
-    echo '# option definitions common to all supported networks...'>>${con_file_isc_dhcp}
-    echo "option domain-name-servers ${dns_server_ip};">>${con_file_isc_dhcp}
-    echo ''>>${con_file_isc_dhcp}
-    echo 'default-lease-time 600;'>>${con_file_isc_dhcp}
-    echo 'max-lease-time 7200;'>>${con_file_isc_dhcp}
-    echo ''>>${con_file_isc_dhcp}
-    echo '# The ddns-updates-style parameter controls whether or not the server will'>>${con_file_isc_dhcp}
-    echo '# attempt to do a DNS update when a lease is confirmed. We default to the'>>${con_file_isc_dhcp}
-    echo "# behavior of the version 2 packages ('none', since DHCP v2 didn't">>${con_file_isc_dhcp}
-    echo '# have support for DDNS.)'>>${con_file_isc_dhcp}
-    echo 'ddns-update-style none;'>>${con_file_isc_dhcp}
-    echo ''>>${con_file_isc_dhcp}
-    echo '# If this DHCP server is the official DHCP server for the local'>>${con_file_isc_dhcp}
-    echo '# network, the authoritative directive should be uncommented.'>>${con_file_isc_dhcp}
-    echo 'authoritative;'>>${con_file_isc_dhcp}
-    echo "subnet ${wlan0_ip%.*}.0 netmask ${wlan0_mask} {">>${con_file_isc_dhcp}
-    echo "  range ${wlan0_ip%.*}.101 ${wlan0_ip%.*}.254;">>${con_file_isc_dhcp}
-    echo "  option subnet-mask ${wlan0_mask};">>${con_file_isc_dhcp}
-    echo "  option broadcast-address ${wlan0_ip%.*}.255;">>${con_file_isc_dhcp}
-    echo "  option routers ${wlan0_ip};">>${con_file_isc_dhcp}
-    echo '}'>>${con_file_isc_dhcp}
-}
-con_bash(){
-    # genrate /usr/share/bash-completion/completions/${PROGNAME}
-    echo '#!/bin/bash'>${con_file_bash_comp}
-    echo "_${PROGNAME}(){">>${con_file_bash_comp}
-    echo '    local cur prev opts'>>${con_file_bash_comp}
-    echo '    COMPREPLY=()'>>${con_file_bash_comp}
-    echo '    cur=${COMP_WORDS[COMP_CWORD]}'>>${con_file_bash_comp}
-    echo '    prev=${COMP_WORDS[$((COMP_CWORD-1))]}'>>${con_file_bash_comp}
-    echo '    case "$prev" in'>>${con_file_bash_comp}
-    echo "        \"${PROGNAME}\")">>${con_file_bash_comp}
-    echo '            opts="ap restart start status stop flush masq"'>>${con_file_bash_comp}
-    echo '            ;;'>>${con_file_bash_comp}
-    echo '        "start"|"masq")'>>${con_file_bash_comp}
-    echo '            opts="wlan both lan"'>>${con_file_bash_comp}
-    echo '            ;;'>>${con_file_bash_comp}
-    echo '        ap)'>>${con_file_bash_comp}
-    echo '            opts="start stop"'>>${con_file_bash_comp}
-    echo '            ;;'>>${con_file_bash_comp}
-    echo '    esac'>>${con_file_bash_comp}
-    echo '    COMPREPLY=( $(compgen -W "${opts}" -- $cur) )'>>${con_file_bash_comp}
-    echo '}'>>${con_file_bash_comp}
-    echo "complete -F _${PROGNAME} ${PROGNAME}">>${con_file_bash_comp}
-}
-con_make(){
-    echo "CONDIR=/etc">${con_file_makefile}
-    echo "BASHCOMP=/usr/share/bash-completion/completions">>${con_file_makefile}
-    echo "PREFIX=/usr/local/sbin">>${con_file_makefile}
-    echo 'HOSTAPD=$(CONDIR)'>>${con_file_makefile}
-    echo 'ISCDHCP=$(CONDIR)/dhcp'>>${con_file_makefile}
-    echo 'INTERFACE=$(CONDIR)/network'>>${con_file_makefile}
-    echo "">>${con_file_makefile}
-    echo "BASHCOMPFILE=${con_file_bash_comp##*/}">>${con_file_makefile}
-    echo "HOSTAPDFILE=${con_file_hostapd##*/}">>${con_file_makefile}
-    echo "ISCDHCPFILE=${con_file_isc_dhcp##*/}">>${con_file_makefile}
-    echo "INTERFACEFILE=${con_file_if##*/}">>${con_file_makefile}
-    echo "">>${con_file_makefile}
-    echo "all:	">>${con_file_makefile}
-    echo "	@echo \"Run 'make install' for installation.\"">>${con_file_makefile}
-    echo "">>${con_file_makefile}
-    echo "install:">>${con_file_makefile}
-    echo "	-install -Dm757	${PROGNAME} \$(PREFIX)/${PROGNAME}" >> ${con_file_makefile}
-    echo "	# bash competion">>${con_file_makefile}
-    echo "	-install -Dm755  \$(BASHCOMPFILE) \$(BASHCOMP)/${PROGNAME}">>${con_file_makefile}
-    echo '	# configuration'>>${con_file_makefile}
-    echo '	-mv  $(INTERFACE)/$(INTERFACEFILE) $(INTERFACE)/$(INTERFACEFILE)`date +"%y%m%d%H%M%S"`'>>${con_file_makefile}
-    echo '	-install -Dm644  $(INTERFACEFILE) $(INTERFACE)/$(INTERFACEFILE)'>>${con_file_makefile}
-    echo '	-mv $(HOSTAPD)/$(HOSTAPDFILE) $(HOSTAPD)/$(HOSTAPDFILE)`date +"%y%m%d%H%M%S"`'>>${con_file_makefile}
-    echo '	-install -Dm644	$(HOSTAPDFILE)  $(HOSTAPD)/$(HOSTAPDFILE)'>>${con_file_makefile}
-    echo '	-mv $(ISCDHCP)/$(ISCDHCPFILE) $(ISCDHCP)/$(ISCDHCPFILE)`date +"%y%m%d%H%M%S"`'>>${con_file_makefile}
-    echo '	-install -Dm644	$(ISCDHCPFILE) $(ISCDHCP)/$(ISCDHCPFILE)'>>${con_file_makefile}
-}
-configure_nat(){
-    [ -d "${PROGDIR}" ] && rm -rf "${PROGDIR}"
-    mkdir "${PROGDIR}"
-    con_if
-    con_hostapd
-    con_isc_dhcp
-    con_bash
-    con_make
-    cp ${PROGNAME} ${PROGDIR}
-}
-configure_nat_wifi(){
-    [ -d "${PROGDIR}" ] && rm -rf "${PROGDIR}"
-    mkdir "${PROGDIR}"
-    con_if_wifi
-    con_hostapd
-    con_isc_dhcp
-    con_bash
-    con_make
-    cp ${PROGNAME} ${PROGDIR}
+    echo    ""
+    echo    " Example configuration:"
+    echo    ""
+    echo    ""
+    echo "/etc/network/interfaces files"
+    echo ""
+    echo "# and how to activate them. For more information, see interfaces(5)."
+    echo ""
+    echo "source /etc/network/interfaces.d/*"
+    echo ""
+    echo "# The loopback network interface"
+    echo "auto lo"
+    echo "iface lo inet loopback"
+    echo ""
+    echo "# The primary network interface"
+    echo "auto ${eth1}"
+    echo "allow-hotplug ${eth1}"
+    echo "iface ${eth1} inet static"
+    echo "    address ${eth1_ip}"
+    echo "    netmask ${eth1_mask}"
+    echo "    gateway ${eth1_ip%.*}.1"
+    echo -e "    dns-nameservers ${dns_server_ip//,/\\n    dns-nameservers }"
+    echo "# usb-lan"
+    echo "auto ${eth0}"
+    echo "allow-hotplug ${eth0}"
+    echo "iface ${eth0} inet static"
+    echo "    address ${eth0_ip} "
+    echo ""
+    echo "# wlan"
+    echo "# client"
+    echo "allow_hotplug ${wlan0_sta}"
+    echo "iface ${wlan0_sta} inet dhcp"
+    echo "# manual not static"
+    echo "iface ${wlan0_ap} inet manual"
+    echo "    #hostapd must be started after the interface is brought-up"
+    echo "    post-up /usr/sbin/hostapd -B /etc/${con_file_hostapd##*/}"
+    echo "    up ip addr add ${wlan0_ip_range} broadcast ${wlan0_ip%.*}.1 dev ${wlan0_ap}"
+    echo "    up service isc-dhcp-server restart"
+    echo "    pre-down killall hostapd"
+    echo "    down ip addr flush dev ${wlan0_ap}"
+    echo ""
+    echo ""
+    echo "/etc/hostapd.conf"
+    echo ""
+    echo "# ${PROGNAME}_${VERSION}"
+    echo "# Debug"
+    echo "# Minimal configuration for test"
+    echo "interface=${wlan0_ap}"
+    echo "driver=nl80211"
+    echo "ssid=${wlan0_ssid}"
+    echo "#check by sudo iwlist wlp60s0 channel, more refer to iwlist"
+    echo "channel=1"
+    echo ""
+    echo "# add more"
+    echo "#simply means 2.4GHz band, a means 5G"
+    echo "hw_mode=g"
+    echo "wme_enabled=1"
+    echo "# 802.11n support"
+    echo "ieee80211n=1"
+    echo "# check it by iw list"
+    echo "ht_capab=[HT40+][SHORT-GI-40][DSSS_CKK-40]"
+    echo ""
+    echo "# authentication and Encryption"
+    echo "# 1 for wpa, 2 for wep, 3 both"
+    echo "auth_algs=1"
+    echo "ignore_broadcast_ssid=0"
+    echo "# WPA 2"
+    echo "wpa=2"
+    echo "wpa_passphrase=${wlan0_psk}"
+    echo "wpa_key_mgmt=WPA-PSK"
+    echo "# wpa_pairwise for WPA, rsn_pairwise for WPA2"
+    echo "wpa_pairwise=TKIP"
+    echo "rsn_pairwise=CCMP"
+    echo ""
+    echo "# more"
+    echo "# limit frequencies used to those allowed in the country"
+    echo "ieee80211d=1"
+    echo "# china, check by isoqurey"
+    echo "country_code=CN"
+    echo "# QoS support"
+    echo "wmm_enabled=1"
+    echo ""
+    echo ""
+    echo "/etc/dhcp/dhcpd.conf"
+    echo '# dhcpd.conf'
+    echo '#'
+    echo '# Sample configuration file for ISC dhcpd'
+    echo '#'
+    echo ''
+    echo '# option definitions common to all supported networks...'
+    echo "option domain-name-servers ${dns_server_ip};"
+    echo ''
+    echo 'default-lease-time 600;'
+    echo 'max-lease-time 7200;'
+    echo ''
+    echo '# The ddns-updates-style parameter controls whether or not the server will'
+    echo '# attempt to do a DNS update when a lease is confirmed. We default to the'
+    echo "# behavior of the version 2 packages ('none', since DHCP v2 didn't"
+    echo '# have support for DDNS.)'
+    echo 'ddns-update-style none;'
+    echo ''
+    echo '# If this DHCP server is the official DHCP server for the local'
+    echo '# network, the authoritative directive should be uncommented.'
+    echo 'authoritative;'
+    echo "subnet ${wlan0_ip%.*}.0 netmask ${wlan0_mask} {"
+    echo "  range ${wlan0_ip%.*}.101 ${wlan0_ip%.*}.254;"
+    echo "  option subnet-mask ${wlan0_mask};"
+    echo "  option broadcast-address ${wlan0_ip%.*}.255;"
+    echo "  option routers ${wlan0_ip};"
+    echo '}'
+    echo ""
+    echo ""
+    echo "/etc/default/isc-dhcp-server"
+    echo ""
+    echo "# Defaults for isc-dhcp-server (sourced by /etc/init.d/isc-dhcp-server)"
+    echo ""
+    echo "# Path to dhcpd's config file (default: /etc/dhcp/dhcpd.conf)."
+    echo "#DHCPDv4_CONF=/etc/dhcp/dhcpd.conf"
+    echo "#DHCPDv6_CONF=/etc/dhcp/dhcpd6.conf"
+    echo ""
+    echo "# Path to dhcpd's PID file (default: /var/run/dhcpd.pid)."
+    echo "#DHCPDv4_PID=/var/run/dhcpd.pid"
+    echo "#DHCPDv6_PID=/var/run/dhcpd6.pid"
+    echo ""
+    echo "# Additional options to start dhcpd with."
+    echo "#	Don't use options -cf or -pf here; use DHCPD_CONF/ DHCPD_PID instead"
+    echo '#OPTIONS=""'
+    echo ""
+    echo "# On what interfaces should the DHCP server (dhcpd) serve DHCP requests?"
+    echo '#	Separate multiple interfaces with spaces, e.g. "eth0 eth1".'
+    echo "#INTERFACESv4=\"\""
+    echo "#interfaces=\"${wlan0}\""
+    echo "INTERFACESv4=\"${wlan0_ap}\""
+    echo "#INTERFACESv6="""
+    echo ""
+    echo ""
+    echo "/usr/share/bash-completion/completions/${PROGNAME}"
+    echo '#!/bin/bash'
+    echo "_${PROGNAME}(){"
+    echo '    local cur prev opts'
+    echo '    COMPREPLY=()'
+    echo '    cur=${COMP_WORDS[COMP_CWORD]}'
+    echo '    prev=${COMP_WORDS[$((COMP_CWORD-1))]}'
+    echo '    case "$prev" in'
+    echo "        \"${PROGNAME}\")"
+    echo '            opts="ap inet nat reset status"'
+    echo '            ;;'
+    echo '        "nat")'
+    echo '            opts="restart start stop flush masq"'
+    echo '            ;;'
+    echo '        "restart"|"start"|"masq"|"stop")'
+    echo "            opts=\"${eth0} ${eth1} ${wlan0} ${wlan0_ap} ${wlan0_sta}\""
+    echo '            ;;'
+    echo '        ap)'
+    echo '            opts="create delete start stop"'
+    echo '            ;;'
+    echo '        inet)'
+    echo '            opts="start stop"'
+    echo '            ;;'
+    echo '        create|delete)'
+    echo "            opts=\"${wlan0}\""
+    echo '            ;;'
+    echo '    esac'
+    echo '    COMPREPLY=( $(compgen -W "${opts}" -- $cur) )'
+    echo '}'
+    echo "complete -F _${PROGNAME} ${PROGNAME}"
 }
 
 iptables_flush(){
@@ -373,162 +247,153 @@ iptables_flush(){
     ${IPTABLES} -X
 }
 
+# Masquerade, $1: $eth1(default) or ${wlan_sta}
 iptables_masq(){
-    # Masquerade.
-    #${IPTABLES} -t nat -A POSTROUTING -o ${eth1} -j MASQUERADE
-    ${IPTABLES} -t nat -A POSTROUTING -o ${eth1} -j SNAT --to-source 172.20.16.39
+    ${IPTABLES} -t nat -A POSTROUTING -o ${1:-${eth1}} -j MASQUERADE
+    #${IPTABLES} -t nat -A POSTROUTING -o ${eth1} -j SNAT --to-source 172.20.16.39
 }
-
+# Allowance, $1: $eth1(default) or ${wlan_sta}
 iptables_allow(){
-    #both for lan and wireless-AP
     # Always accept loopback traffic
     ${IPTABLES} -A INPUT -i lo -j ACCEPT
     # Allow established connections, and those not coming from the outside
     ${IPTABLES} -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
-    ${IPTABLES} -A INPUT -m state --state NEW ! -i ${eth1} -j ACCEPT
+    ${IPTABLES} -A INPUT -m state --state NEW ! -i ${1:-${eth1}} -j ACCEPT
 }
-
-iptables_filter_lan(){
-    ${IPTABLES} -A FORWARD -i ${eth1} -o ${eth0} -m state --state ESTABLISHED,RELATED -j ACCEPT
+# Filter, $1(internet face): ${eth1}(default) or ${wlan_sta}
+#         $2(local face): ${eth0} or ${wlan_ap}
+iptables_filter(){
+    ${IPTABLES} -A FORWARD -i ${1:-${eth1}} -o ${2:-${eth0}} -m state --state ESTABLISHED,RELATED -j ACCEPT
     # Allow outgoing connections from the LAN side.
-    ${IPTABLES} -A FORWARD -i ${eth0} -o ${eth1} -j ACCEPT
+    ${IPTABLES} -A FORWARD -i ${2:-${eth0}} -o ${1:-${eth1}} -j ACCEPT
     # Don't forward from the outside to the inside.
-    ${IPTABLES} -A FORWARD -i ${eth1} -o ${eth0} -j REJECT
-}
-iptables_filter_wlan(){
-    ${IPTABLES} -A FORWARD -i ${eth1} -o ${wlan0_ap} -m state --state ESTABLISHED,RELATED -j ACCEPT
-    # Allow outgoing connections from the LAN side.
-    ${IPTABLES} -A FORWARD -i ${wlan0_ap} -o ${eth1} -j ACCEPT
-    # Don't forward from the outside to the inside.
-    ${IPTABLES} -A FORWARD -i ${eth1} -o ${wlan0_ap} -j REJECT
-}
-iptables_lan(){
-    iptables_allow
-    iptables_filter_lan
-    iptables_masq
-    #   write status
-    echo "lan" > ${statusfile}
-
-}
-iptables_wlan(){
-    iptables_allow
-    iptables_filter_wlan
-    iptables_masq
-    #   write status
-    echo "wlan" > ${statusfile}
-}
-iptables_both(){
-    iptables_allow
-    iptables_filter_lan
-    iptables_filter_wlan
-    iptables_masq
-    # write status
-    echo "both" > ${statusfile}
+    ${IPTABLES} -A FORWARD -i ${2:-${eth1}} -o ${1:-${eth0}} -j REJECT
+    if [ "${3}x" != "x" ]; then 
+        ${IPTABLES} -A FORWARD -i ${1:-${eth1}} -o ${3} -m state --state ESTABLISHED,RELATED -j ACCEPT
+        ${IPTABLES} -A FORWARD -i ${3} -o ${1:-${eth1}} -j ACCEPT
+        ${IPTABLES} -A FORWARD -i ${3} -o ${1:-${eth0}} -j REJECT
+    fi
 }
 
-iptables_nat(){
+# support mode: eth1 --
+#               wlan_sta --
+#
+# saytax:   iptables_set
+#           iptables_set ${eth1} ${eth0}
+#           iptables_set ${eth1} ${wlan_ap}
+#           iptables_set ${eth1} ${eth0} ${wlan_ap}
+#           iptables_set ${wlan_sta} ${wlan_ap}
+#           iptables_set ${wlan_sta} ${eth0}
+#           iptables_set ${wlan_sta} ${wlan_ap} ${eth0}
+iptables_set(){
+    iptables_allow ${1:-${eth1}}
+    iptables_filter ${1:-eth1} ${2:-${eth0}} ${3}
+    iptables_masq ${1:-${eth1}}
+}
+
+iptables_nat_start(){
     # Enable routing.
-    echo 1 > /proc/sys/net/ipv4/ip_forward
-    #echo 1 >/proc/sys/net/ipv6/conf/all/forwarding
+    echo 1 >/proc/sys/net/ipv4/ip_forward
 }
 iptables_nat_stop(){
-    #echo 0 >/proc/sys/net/ipv6/conf/all/forwarding
     echo 0 >/proc/sys/net/ipv4/ip_forward
 }
-# stop NAT 
-natstop(){
-    get_interface && ifdown ${eth0} || ifdown ${wlan0_ap} || iptables_nat_stop && service networking restart
-    echo "none" > ${statusfile}
-}
-#start NAT
-natstart_lan(){
-    #   bring up local usb-lan interface
-    get_interface && ifup ${eth0} && iptables_flush && iptables_lan && iptables_nat
-}
-natstart_wlan(){
-    #bring up local wlan interface
-    get_interface && ifup ${wlan0_ap} && iptables_flush && iptables_wlan && iptables_nat
-}
-natstart_both(){
-    get_interface && ifup ${eth0} && ifup ${wlan0_ap} && iptables_flush && iptables_both && iptables_nat
-}
-natstatus(){
-    echo -n ipv6: `cat /proc/sys/net/ipv6/conf/all/forwarding` ipv4:`cat /proc/sys/net/ipv4/ip_forward`
-    echo " mode:$(cat ${statusfile})"
-    
+
+iptables_status(){
+    echo ipv6: `cat /proc/sys/net/ipv6/conf/all/forwarding` ipv4:`cat /proc/sys/net/ipv4/ip_forward`
+    echo ""
     echo "Table NAT:"
     ${IPTABLES} -t nat -S
+    echo ""
     echo "Table FILTER:"
     ${IPTABLES} -t filter -S
+    echo ""
     echo "More refer to: iptables -t nat/filter -L -v"
 }
-natrestart(){
-    local status=${1:-$(cat ${statusfile})}
-    status=${status:-lan} #first, no status file, default start lan NAT
-    get_interface
-    natstop
-    case "${status}" in
-        wlan) natstart_wlan;;
-        both) natstart_both;;
-        *) natstart_lan;;
-    esac
+iptables_reset(){
+    # for potential ap 
+    killall hostapd 2>/dev/null
+    # flush ip for every interface
+    for x in $(/sbin/ip a |grep -i "^[1-9]:*"|cut -d":" -f2 |sed -n "1d;p");
+    do
+        ip addr flush dev ${x};
+    done
+    service networking restart
 }
-ap_create(){
+
+ap_start(){
     #bring up local wlan interface and share ap
-    get_interface && ifup ${wlan0_ap}
+    ifup ${1:-${wlan0_ap}}
 }
 ap_stop(){
     #bring up local wlan interface and share ap
-    get_interface && ifdown ${wlan0_ap}
+    ifdown ${1:-${wlan0_ap}}
+    service networking restart
 }
-case "$1" in 
-    start)
-        [ $(id -u) -ne 0 ] && echo "Pleas run as root: sudo nat ..." && exit 1
+ap_create(){
+    wlan0=${1:-${wlan0}}
+    [ ! -d "/sys/class/net/${wlan0_ap}" ] && \
+        iw dev ${wlan0} interface add ${wlan0}_ap type __ap addr 9c:b6:d0:04:12:00
+    [ ! -d "/sys/class/net/${wlan0_sta}" ] && \
+        iw dev ${wlan0} interface add ${wlan0}_sta type managed addr 9c:b6:d0:04:12:ff
+}
+ap_delete(){
+    wlan0=${1:-${wlan0}}
+    [ -d "/sys/class/net/${wlan0_ap}" ] && iw dev ${wlan0_ap} del
+    [ -d "/sys/class/net/${wlan0_sta}" ] && iw dev ${wlan0_sta} del
+}
+check_interface(){
+    while [ $# -gt 0 ]; do
+        [ ! -d "/sys/class/net/$1" ] && \
+            echo -e "Please check Inernet ethernet interface by\n   ls /sys/class/net\nModify the interface names in $0" && return 1
         shift
-        case "$1" in 
-            wlan)natstart_wlan && exit 0;;
-            both)natstart_both && exit 0;;
-            *) natstart_lan && exit 0
+    done
+}
+
+[ $# -eq 0 ] && usage |less && exit 0
+[ $(id -u) -ne 0 ] && echo "Pleas run as root: sudo nat ..." && exit 1
+case "$1" in 
+    nat)
+        shift
+        case "$1" in
+            start)
+                shift
+                check_interface "$@" && iptables_set $1 $2 $3 && iptables_nat_start
+                ;;
+            stop)
+                iptables_nat_stop && exit 0;;
+            restart)
+                shift
+                iptables_stop && iptables_reset && check_interface "$@" && iptables_set $1 $2 $3 && iptables_nat_start
+                ;;
+            flush)
+                # for safety, we should stop NAT before flush filters
+                iptables_nat_stop && iptables_flush
+                ;;
+            masq)
+                shift
+                check_interface "$@" && iptables_set $1 $2 $3 && iptables_nat_start
+                ;;
         esac
         ;;
     status)
-        [ $(id -u) -ne 0 ] && echo "Pleas run as root: sudo nat ..." && exit 1
-        natstatus
+        iptables_status  && exit 0
         ;;
-    stop)
-        [ $(id -u) -ne 0 ] && echo "Pleas run as root: sudo nat ..." && exit 1
-        iptables_nat_stop && exit 0;;
-    restart)
-        [ $(id -u) -ne 0 ] && echo "Pleas run as root: sudo nat ..." && exit 1
-        shift
-        natrestart "$1" && exit 0;;
-    flush)
-        [ $(id -u) -ne 0 ] && echo "Pleas run as root: sudo nat ..." && exit 1
-        # for safety, we should stop NAT before flush filters
-        iptables_nat_stop && iptables_flush && echo "none" > ${statusfile} && exit 0
-        ;;
-    masq|filter)
-        [ $(id -u) -ne 0 ] && echo "Pleas run as root: sudo nat ..." && exit 1
-        shift
-        cat ${statusfile} | grep -i "\(lan\|wlan\|both\)" 2>&1 >/dev/null 
-        [ $? -eq 0 ] && echo "There exists active NAT $(cat ${statusfile})." && exit 1
-        case "$1" in
-            wlan) get_interface && iptables_wlan && iptables_nat && exit 0 ;;
-            both) get_interface && iptables_both && iptables_nat && exit 0 ;;
-            *)    get_interface && iptables_lan  && iptables_nat && exit 0 ;;
-        esac
-        ;;
-    configure)
-         get_interface && configure_nat
-         ;;
     ap)
-        [ $(id -u) -ne 0 ] && echo "Pleas run as root: sudo nat ..." && exit 1
         shift
         case "$1" in 
-            start) ap_create && exit 0;;
+            start) ap_start && exit 0;;
             stop) ap_stop && exit 0;;
+            create) ap_create $2 && exit 0;;
+            delete) ap_delete $2 && exit 0;;
         esac
         ;;
+    reset)
+        iptables_nat_stop && iptables_flush && iptables_reset
+        ;;
+    inet)
+        shift 
+        check_interface "$1" && ifup "$1"
     *)
         usage |less && exit 1
 esac
