@@ -16,25 +16,3 @@ Introduction:
     terminal of my Linux server. In addtional, my Linux server has a wireless card,
     I use it as an AP to share Internet with my cellphone Huawei P10 and ipad.
     I use isc-dchp-server to get my Linux to a DHCP server of the shared WIFI
-
-install
-    1 read the help 
-            natap
-    2 configure
-            natap configure
-        you maybe need execution permission by 
-            chmod u+x natap
-    3 install
-            cd natap_0-1
-            sudo make install
-uninstall:
-        ===========================================================
-        === Be careful. You must know why you run this command. ===
-        ===========================================================
-
-            sudo rm /etc/hostapd.conf /etc/dhcp/dhcpd.conf /etc/network/interfaces /usr/share/bash-completion/completions/nat* /usr/local/sbin/natap
-
-        ===========================================================
-        === Be careful. You must know why you run this command. ===
-        ===========================================================
-
